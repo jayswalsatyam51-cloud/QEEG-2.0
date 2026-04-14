@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+@layer base {
+  :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1c2330;
+      --border: #30363d;
+      --border2: #21262d;
+      --text: #e6edf3;
+      --text2: #8b949e;
+      --text3: #6e7681;
+      --accent: #58a6ff;
+      --accent2: #1f6feb;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+      --purple: #bc8cff;
+      --orange: #ffa657;
+      --teal: #39d353;
+  }
+  
+  body {
+      background-color: var(--bg);
+      color: var(--text);
+  }
+
+  /* Custom overrides for Recharts or generic elements */
+  select, input {
+      background-color: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+  }
+
+  .panel {
+      background-color: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 0.5rem;
+  }
+}
