@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QEEG Change Tracker & Interpreter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --surface: #161b22;
+            --surface2: #1c2330;
+            --border: #30363d;
+            --border2: #21262d;
+            --text: #e6edf3;
+            --text2: #8b949e;
+            --text3: #6e7681;
+            --accent: #58a6ff;
+            --accent2: #1f6feb;
+            --green: #3fb950;
+            --red: #f85149;
+            --yellow: #d29922;
+            --purple: #bc8cff;
+            --orange: #ffa657;
+            --teal: #39d353;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        code, .mono { font-family: 'IBM Plex Mono', monospace; }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--surface); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+        .panel { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; }
+        .panel-header { padding: 14px 18px; border-bottom: 1px solid var(--border2); font-weight: 600; font-size: 14px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+
+        #file-upload-area {
+            border: 2px dashed var(--border);
+            background: var(--surface2);
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+            padding: 24px;
+            text-align: center;
+            border-radius: 8px;
+        }
+        #file-upload-area:hover, #file-upload-area.dragover {
+            border-color: var(--accent);
+            background: rgba(88,166,255,0.05);
+        }
+        
+        #csv-upload {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: pointer;
+        }
+
+        select, input[type="file"], input[type="password"] {
+            background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+            border-radius: 6px; padding: 7px 10px; font-size: 13px; width: 100%;
+            font-family: 'IBM Plex Sans', sans-serif;
+            transition: border-color 0.15s;
+        }
+        select:focus, input[type="password"]:focus { outline: none; border-color: var(--accent); }
+        select option { background: var(--surface2); }
+        select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        label { font-size: 12px; color: var(--text2); display: block; margin-bottom: 5px; font-weight: 500; }
+
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; width: 100%; }
+        .btn-primary { background: var(--accent2); border-color: #388bfd; color: #fff; }
+        .btn-primary:hover { background: #388bfd; }
+        .btn-primary:disabled, .btn-disabled { opacity: 0.4; cursor: not-allowed; background: var(--surface2); border-color: var(--border); color: var(--text3); }
+        .btn-green { background: #238636; border-color: #2ea043; color: #fff; }
+        .btn-green:hover { background: #2ea043; }
+        .btn-green:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-secondary { background: var(--purple); border-color: #8957e5; color: #fff; }
+        .btn-secondary:hover { background: #8957e5; }
+        .btn-ghost { background: var(--surface2); border-color: var(--border); color: var(--text2); }
+        .btn-ghost:hover { border-color: var(--text3); color: var(--text); }
+        
+        #interpretation-box {
+            background: var(--surface2);
+            border: 1px solid var(--border2);
+            border-radius: 8px;
+            padding: 14px;
+            margin-top: 14px;
+            font-size: 13.5px;
+            line-height: 1.7;
+            color: var(--text2);
+        }
+        #interpretation-box h3, #interpretation-box h4 { color: var(--text); margin-bottom: 6px; margin-top: 14px; }
+        #interpretation-box p { margin-bottom: 8px; }
+        #interpretation-box ul { padding-left: 20px; margin-bottom: 8px; list-style-type: disc; }
+        #interpretation-box li { margin-bottom: 3px; }
+        #interpretation-box strong { color: var(--text); }
+        
+        #interpretation-sources {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed var(--border);
+        }
+        #interpretation-sources a {
+            color: var(--accent);
+            text-decoration: none;
+            display: block;
+            margin-bottom: 2px;
+            font-size: 12px;
+        }
+        #interpretation-sources a:hover { text-decoration: underline; }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 0.8s linear infinite; }
+    </style>
+</head>
+<body>
+
+    <div style="max-width:1400px; margin:0 auto; padding: 24px 20px;">
+        
+        <header style="margin-bottom:28px; padding-bottom:20px; border-bottom:1px solid var(--border2);">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">
+                <div style="width:32px;height:32px;background:var(--accent2);border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                </div>
+                <h1 style="font-size:22px;font-weight:700;color:var(--text);letter-spacing:-0.3px;">QEEG Change Tracker & Interpreter</h1>
+            </div>
+            <p style="font-size:13px;color:var(--text3);margin-left:44px;">Upload your QEEG CSV files, graph changes between sessions, and get AI-powered interpretations.</p>
+        </header>
+
+        <div style="display:flex; gap:20px; align-items:flex-start; flex-wrap: wrap;">
+            <div style="width:300px; flex-shrink:0; display:flex; flex-direction:column; gap:16px;">
+                
+                <div class="panel">
+                    <div class="panel-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Step 1: Upload Data
+                    </div>
+                    <div style="padding:14px;">
+                        <label for="csv-upload" style="margin-bottom:8px;">Upload QEEG Files</label>
+                        <div id="file-upload-area">
+                            <input type="file" id="csv-upload" multiple accept=".csv">
+                            <svg style="width:36px;height:36px;color:var(--text3);margin:0 auto 8px;" stroke="currentColor" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2H4a2 2 0 01-2-2z" /></svg>
+                            <p style="font-size:12px;color:var(--text3);"><span style="color:var(--accent);font-weight:500;">Click to upload</span> or drag & drop</p>
+                            <p style="font-size:11px;color:var(--text3);margin-top:3px;">Multiple CSV files supported</p>
+                        </div>
+                        <div id="file-list" style="margin-top:10px; font-size:12px; color:var(--text2);"></div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M5.34 17.66l-1.41 1.41M4.93 4.93l1.41 1.41M17.66 18.34l1.41 1.41M1 12h2m18 0h2M12 1v2m0 18v2"/></svg>
+                        Analysis Controls
+                    </div>
+                    <div style="padding:14px; display:flex; flex-direction:column; gap:12px;">
+                        <div>
+                            <label for="baseline-select">Baseline (Session 1)</label>
+                            <select id="baseline-select" disabled><option>Upload files first</option></select>
+                        </div>
+                        <div>
+                            <label for="comparison-select">Comparison (Session 2)</label>
+                            <select id="comparison-select" disabled><option>Upload files first</option></select>
+                        </div>
+                        <div>
+                            <label for="analysis-type">Analysis Mode</label>
+                            <select id="analysis-type">
+                                <option value="single_point" selected>Single Point Comparison</option>
+                                <option value="all_segments">All Segments (for one Band)</option>
+                                <option value="all_bands">All Bands (for one Segment)</option>
+                            </select>
+                        </div>
+                        <div id="segment-select-wrapper">
+                            <label for="segment-select">Segment (Row)</label>
+                            <select id="segment-select" disabled><option>Select files first</option></select>
+                        </div>
+                        <div id="band-select-wrapper">
+                            <label for="band-select">Band (Column)</label>
+                            <select id="band-select" disabled><option>Select files first</option></select>
+                        </div>
+                        <div style="margin-top:6px;">
+                            <button id="run-comparison" class="btn btn-primary btn-disabled" disabled>
+                                Graph Comparison
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:16px;">
+                
+                <div id="results-placeholder" class="panel" style="padding:60px 24px; text-align:center;">
+                    <svg style="width:48px;height:48px;color:var(--text3);margin:0 auto 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m-9 4H5l-2 2h2m10 0h2l2 2h-2m-4-4l-1.414-1.414A2 2 0 0011.172 10H10a2 2 0 00-2 2v4a2 2 0 002 2h1.172a2 2 0 001.414-.586L14 14m-4-4V7a2 2 0 012-2h2a2 2 0 012 2v3"></path></svg>
+                    <h3 style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;">Waiting for data</h3>
+                    <p style="font-size:13px;color:var(--text3);">Complete all steps in the control panel to view results.</p>
+                </div>
+
+                <div id="chart-container" class="panel hidden">
+                    <div class="panel-header" style="justify-content:space-between;">
+                        <span style="display:flex;align-items:center;gap:8px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                            Visualization
+                        </span>
+                        <div style="display:flex;gap:6px;">
+                            <button id="export-report" class="btn btn-ghost" style="padding:4px 10px; font-size:11px; width:auto;">⬇ Export PNG/PDF</button>
+                        </div>
+                    </div>
+                    <div style="padding:16px;">
+                        <div style="position:relative; height:340px;">
+                            <canvas id="change-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="table-container" class="panel hidden mt-4">
+                    <div class="panel-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                        Data Summary
+                    </div>
+                    
+                </div>
+
+                <div id="diagnostics-section" class="panel hidden mt-4">
+                    <div class="panel-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-4"/></svg>
+                        Statistical Diagnostics
+                    </div>
+                    <div style="padding:16px;">
+                        <p style="font-size:12px; color:var(--text3); margin-bottom:12px;">Session-aware descriptive and trend checks for the currently graphed comparison.</p>
+                        <div id="diagnostics-box" style="background:var(--surface2); border:1px solid var(--border2); border-radius:6px; padding:12px; font-size:13px; color:var(--text); font-family:'IBM Plex Mono', monospace;"></div>
+                    </div>
+                </div>
+
+                <div id="interpretation-section" class="panel hidden mt-4">
+                    <div class="panel-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--orange)" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                        Clinical Interpretation
+                    </div>
+                    <div style="padding:16px;">
+                        <p id="interpretation-instructions" style="font-size:12px; color:var(--text3); margin-bottom:12px;">Get AI-powered insights based on your specific data change.</p>
+                        <div style="margin-bottom:12px; max-width:300px;">
+                            <label for="api-key-input">Google API Key</label>
+                            <input type="password" id="api-key-input" placeholder="AIza..." autocomplete="off">
+                        </div>
+                        <button id="get-interpretation" class="btn btn-secondary" style="width:auto;">
+                            Get Potential Interpretations
+                        </button>
+                        
+                        <div id="interpretation-box" class="hidden">
+                            <div id="interpretation-loading" class="hidden" style="text-align:center; padding:20px;">
+                                <div class="spinner animate-spin" style="width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;margin:0 auto;"></div>
+                                <p style="font-size:13px; color:var(--text2); margin-top:8px;">Analyzing change and searching clinical literature...</p>
+                            </div>
+                            <div id="interpretation-content"></div>
+                            <div id="interpretation-sources"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // --- Global State ---
+        const fileDataStore = {}; // Stores all parsed CSV data, e.g., { "filename.csv": { segments: [...], bands: [...], data: { "seg": { "band": val } } } }
+        let chartInstance = null; // To hold the Chart.js object
+        let currentComparisonData = null; // To store data for the API call
+
+        // --- DOM Elements ---
+        const fileUpload = document.getElementById('csv-upload');
+        const fileListDiv = document.getElementById('file-list');
+        const baselineSelect = document.getElementById('baseline-select');
+        const comparisonSelect = document.getElementById('comparison-select');
+        const analysisTypeSelect = document.getElementById('analysis-type');
+        const segmentSelectWrapper = document.getElementById('segment-select-wrapper');
+        const segmentSelect = document.getElementById('segment-select');
+        const bandSelectWrapper = document.getElementById('band-select-wrapper');
+        const bandSelect = document.getElementById('band-select');
+        const runButton = document.getElementById('run-comparison');
+        const resultsPlaceholder = document.getElementById('results-placeholder');
+        const chartContainer = document.getElementById('chart-container');
+        const tableContainer = document.getElementById('table-container');
+        const exportReportButton = document.getElementById('export-report');
+        const interpretationSection = document.getElementById('interpretation-section');
+        const getInterpretationButton = document.getElementById('get-interpretation');
+        const interpretationBox = document.getElementById('interpretation-box');
+        const interpretationLoading = document.getElementById('interpretation-loading');
+        const interpretationContent = document.getElementById('interpretation-content');
+        const interpretationSources = document.getElementById('interpretation-sources');
+        const interpretationInstructions = document.getElementById('interpretation-instructions');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const diagnosticsSection = document.getElementById('diagnostics-section');
+        const diagnosticsBox = document.getElementById('diagnostics-box');
+
+        // --- Event Listeners ---
+        fileUpload.addEventListener('change', handleFileUpload);
+        baselineSelect.addEventListener('change', onFileSelectionChange);
+        comparisonSelect.addEventListener('change', onFileSelectionChange);
+        analysisTypeSelect.addEventListener('change', onAnalysisTypeChange);
+        segmentSelect.addEventListener('change', checkRunButtonState);
+        bandSelect.addEventListener('change', checkRunButtonState);
+        runButton.addEventListener('click', runComparison);
+        exportReportButton.addEventListener('click', exportReport);
+        getInterpretationButton.addEventListener('click', fetchInterpretation);
+
+        // --- File Handling ---
+        function handleFileUpload(event) {
+            const files = event.target.files;
+            if (files.length === 0) return;
+            
+            fileListDiv.innerHTML = '<p class="font-medium">Parsing files...</p>';
+            let filesParsed = 0;
+
+            Array.from(files).forEach(file => {
+                Papa.parse(file, {
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        try {
+                            processParsedData(file.name, results.data);
+                            filesParsed++;
+                            if (filesParsed === files.length) {
+                                updateFileDropdowns();
+                                updateFileList();
+                            }
+                        } catch (error) {
+                            console.error(`Error processing file ${file.name}:`, error);
+                            alert(`Failed to process file ${file.name}. Ensure it's the correct QEEG format.`);
+                        }
+                    },
+                    error: (err) => {
+                        console.error('PapaParse error:', err);
+                        alert(`Error parsing file ${file.name}: ${err.message}`);
+                    }
+                });
+            });
+        }
+
+        function processParsedData(filename, data) {
+            // From your example, Row 1 (index 0) has Band names, starting from Col 2 (index 1)
+            // Col 1 (index 0) has Segment names, starting from Row 2 (index 1)
+            const bands = data[0].slice(1).map(band => band.trim()); // "D", "T", "A1", ...
+            const segments = [];
+            const dataMap = {};
+
+            for (let i = 1; i < data.length; i++) {
+                const row = data[i];
+                if (row.length < 2) continue; // Skip malformed or empty rows
+                
+                const segmentName = row[0].trim();
+                if (!segmentName) continue;
+                
+                segments.push(segmentName);
+                dataMap[segmentName] = {};
+
+                for (let j = 0; j < bands.length; j++) {
+                    const bandName = bands[j];
+                    const value = parseFloat(row[j + 1]);
+                    dataMap[segmentName][bandName] = isNaN(value) ? null : value;
+                }
+            }
+
+            fileDataStore[filename] = {
+                segments: segments,
+                bands: bands,
+                data: dataMap
+            };
+            console.log(`Processed: ${filename}`, fileDataStore[filename]);
+        }
+
+        function updateFileList() {
+            fileListDiv.innerHTML = '<p class="font-medium">Uploaded Files:</p><ul class="list-disc list-inside"></ul>';
+            const ul = fileListDiv.querySelector('ul');
+            Object.keys(fileDataStore).forEach(filename => {
+                const li = document.createElement('li');
+                li.textContent = filename;
+                ul.appendChild(li);
+            });
+        }
+
+        function updateFileDropdowns() {
+            baselineSelect.innerHTML = '<option value="">Select Baseline</option>';
+            comparisonSelect.innerHTML = '<option value="">Select Comparison</option>';
+            
+            Object.keys(fileDataStore).forEach(filename => {
+                baselineSelect.add(new Option(filename, filename));
+                comparisonSelect.add(new Option(filename, filename));
+            });
+
+            baselineSelect.disabled = false;
+            comparisonSelect.disabled = false;
+        }
+
+        function onFileSelectionChange() {
+            const baselineFile = baselineSelect.value;
+            const comparisonFile = comparisonSelect.value;
+            
+            // Populate Segment and Band selectors based on the *baseline* file.
+            // We assume the format is consistent.
+            if (baselineFile && fileDataStore[baselineFile]) {
+                const fileData = fileDataStore[baselineFile];
+                
+                segmentSelect.innerHTML = '<option value="">Select Segment</option>';
+                fileData.segments.forEach(segment => {
+                    segmentSelect.add(new Option(segment, segment));
+                });
+                segmentSelect.disabled = false;
+
+                bandSelect.innerHTML = '<option value="">Select Band</option>';
+                fileData.bands.forEach(band => {
+                    bandSelect.add(new Option(band, band));
+                });
+                bandSelect.disabled = false;
+            } else {
+                segmentSelect.innerHTML = '<option>Select file first</option>';
+                segmentSelect.disabled = true;
+                bandSelect.innerHTML = '<option>Select file first</option>';
+                bandSelect.disabled = true;
+            }
+            checkRunButtonState();
+        }
+
+        function onAnalysisTypeChange() {
+            const type = analysisTypeSelect.value;
+            
+            if (type === 'single_point') {
+                segmentSelectWrapper.classList.remove('hidden');
+                bandSelectWrapper.classList.remove('hidden');
+            } else if (type === 'all_segments') {
+                segmentSelectWrapper.classList.add('hidden');
+                bandSelectWrapper.classList.remove('hidden');
+            } else if (type === 'all_bands') {
+                segmentSelectWrapper.classList.remove('hidden');
+                bandSelectWrapper.classList.add('hidden');
+            }
+            checkRunButtonState();
+        }
+
+        function checkRunButtonState() {
+            let allSelected = baselineSelect.value && comparisonSelect.value;
+            const type = analysisTypeSelect.value;
+
+            if (type === 'single_point') {
+                allSelected = allSelected && segmentSelect.value && bandSelect.value;
+            } else if (type === 'all_segments') {
+                allSelected = allSelected && bandSelect.value;
+            } else if (type === 'all_bands') {
+                allSelected = allSelected && segmentSelect.value;
+            }
+            
+            if (allSelected) {
+                runButton.disabled = false;
+                runButton.classList.remove('btn-disabled');
+            } else {
+                runButton.disabled = true;
+                runButton.classList.add('btn-disabled');
+            }
+            
+            // Hide old results when settings change
+            exportReportButton.classList.add('hidden');
+            tableContainer.classList.add('hidden');
+            diagnosticsSection.classList.add('hidden');
+        }
+
+        // --- Analysis & Graphing ---
+        function runComparison() {
+            try {
+                const type = analysisTypeSelect.value;
+                if (type === 'single_point') {
+                    runSinglePointComparison();
+                } else if (type === 'all_segments') {
+                    runAllSegmentsComparison();
+                } else if (type === 'all_bands') {
+                    runAllBandsComparison();
+                }
+                
+                resultsPlaceholder.classList.add('hidden');
+                chartContainer.classList.remove('hidden');
+                exportReportButton.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error during comparison:', error);
+                alert('An error occurred. Check if the selected files, segments, and bands are valid for both files.');
+            }
+        }
+
+        function runSinglePointComparison() {
+            const file1 = baselineSelect.value;
+            const file2 = comparisonSelect.value;
+            const segment = segmentSelect.value;
+            const band = bandSelect.value;
+
+            const val1 = fileDataStore[file1].data[segment][band];
+            const val2 = fileDataStore[file2].data[segment][band];
+            const delta = val2 - val1;
+            
+            if (val1 === null || val2 === null) {
+                alert('One or more selected data points are missing or invalid.');
+                return;
+            }
+
+            const percentChange = (val1 === 0) ? (delta === 0 ? 0 : Infinity) : (delta / val1) * 100;
+            
+            // Set data for single-point interpretation
+            currentComparisonData = { 
+                type: 'single',
+                data: { file1, file2, segment, band, val1, val2, delta }
+            };
+            
+            const chartTitle = `Comparison for: ${segment} (${band})`;
+            const yAxisLabel = 'Value';
+            const labels = [file1.replace('.csv', ''), file2.replace('.csv', '')];
+            const dataValues = [val1, val2];
+            const datasetLabel = `${segment} (${band})`;
+            const backgroundColors = ['rgba(54, 162, 235, 0.6)', 'rgba(75, 192, 192, 0.6)'];
+            const borderColors = ['rgba(54, 162, 235, 1)', 'rgba(75, 192, 192, 1)'];
+
+            updateChart(chartTitle, yAxisLabel, labels, dataValues, datasetLabel, backgroundColors, borderColors);
+            
+            // Generate Table
+            const reportData = [{
+                segment: segment,
+                band: band,
+                val1: val1,
+                val2: val2,
+                delta: delta,
+                percentChange: percentChange
+            }];
+            generateReportTable(reportData);
+            renderDiagnostics(computeDiagnosticsForReport(reportData));
+
+            interpretationSection.classList.remove('hidden');
+            interpretationBox.classList.add('hidden');
+            interpretationContent.classList.add('hidden'); // Hide any previous messages
+            getInterpretationButton.classList.remove('hidden');
+            getInterpretationButton.disabled = false;
+            getInterpretationButton.classList.remove('btn-disabled');
+            getInterpretationButton.textContent = `Get Interpretation for ${segment} (${band})`; // Reset text
+            interpretationInstructions.textContent = 'Get AI-powered insights based on your specific data change.';
+        }
+
+        // --- (START) New Utility Function: Calculate Stats ---
+        function getStats(values) {
+            if (!values || values.length === 0) return { mean: 0, stdDev: 0, min: 0, max: 0 };
+            
+            const mean = values.reduce((a, b) => a + b, 0) / values.length;
+            const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+            const stdDev = Math.sqrt(variance);
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            
+            return { mean, stdDev, min, max };
+        }
+        // --- (END) New Utility Function ---
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function isValidApiKey(key) {
+            return /^AIza[0-9A-Za-z\-_]{30,}$/.test((key || '').trim());
+        }
+
+        function getApiUrl() {
+            const apiKey = apiKeyInput.value.trim();
+            if (!isValidApiKey(apiKey)) {
+                throw new Error('Please enter a valid Google API key before generating interpretation.');
+            }
+            return `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${encodeURIComponent(apiKey)}`;
+        }
+
+        function computeDiagnosticsForReport(reportData) {
+            const deltas = reportData.map(r => r.delta).filter(v => typeof v === 'number' && !isNaN(v));
+            if (!deltas.length) return null;
+            const stats = getStats(deltas);
+            const trendPairs = deltas.map((v, i) => [i, v]);
+            let slope = null;
+            let r2 = null;
+            if (trendPairs.length >= 3) {
+                const xs = trendPairs.map(p => p[0]);
+                const ys = trendPairs.map(p => p[1]);
+                const mx = xs.reduce((a,b)=>a+b,0)/xs.length;
+                const my = ys.reduce((a,b)=>a+b,0)/ys.length;
+                let num = 0, den = 0;
+                for (let i = 0; i < xs.length; i++) {
+                    num += (xs[i]-mx) * (ys[i]-my);
+                    den += Math.pow(xs[i]-mx,2);
+                }
+                if (den !== 0) {
+                    slope = num / den;
+                    const intercept = my - slope * mx;
+                    const yPred = xs.map(x => intercept + slope * x);
+                    const ssRes = ys.reduce((acc, y, i) => acc + Math.pow(y - yPred[i], 2), 0);
+                    const ssTot = ys.reduce((acc, y) => acc + Math.pow(y - my, 2), 0);
+                    r2 = ssTot === 0 ? 0 : 1 - (ssRes / ssTot);
+                }
+            }
+            return { n: deltas.length, ...stats, slope, r2 };
+        }
+
+        function renderDiagnostics(diag) {
+            if (!diag) {
+                diagnosticsSection.classList.add('hidden');
+                return;
+            }
+            diagnosticsSection.classList.remove('hidden');
+            diagnosticsBox.innerHTML = `
+                <div class="grid md:grid-cols-2 gap-3">
+                    <div><strong>n</strong>: ${diag.n}</div>
+                    <div><strong>Mean delta</strong>: ${diag.mean.toFixed(3)}</div>
+                    <div><strong>SD</strong>: ${diag.stdDev.toFixed(3)}</div>
+                    <div><strong>Range</strong>: [${diag.min.toFixed(3)}, ${diag.max.toFixed(3)}]</div>
+                    <div><strong>Trend slope</strong>: ${diag.slope !== null ? `${diag.slope >= 0 ? '+' : ''}${diag.slope.toFixed(4)}` : 'N/A'}</div>
+                    <div><strong>R²</strong>: ${diag.r2 !== null ? diag.r2.toFixed(3) : 'N/A'}</div>
+                </div>
+            `;
+        }
+
+        function runAllSegmentsComparison() {
+            const file1 = baselineSelect.value;
+            const file2 = comparisonSelect.value;
+            const band = bandSelect.value;
+
+            const segments = fileDataStore[file1].segments;
+            let tempReportData = [];
+
+            // 1. First pass: Get all valid data
+            for (const segment of segments) {
+                const val1 = fileDataStore[file1].data[segment]?.[band];
+                const val2 = fileDataStore[file2].data[segment]?.[band];
+
+                if (val1 !== null && val2 !== null && val1 !== undefined && val2 !== undefined) {
+                    const delta = val2 - val1;
+                    const percentChange = (val1 === 0) ? (delta === 0 ? 0 : Infinity) : (delta / val1) * 100;
+                    tempReportData.push({
+                        segment: segment,
+                        band: band,
+                        val1: val1,
+                        val2: val2,
+                        delta: delta,
+                        percentChange: percentChange
+                    });
+                }
+            }
+
+            // 2. Calculate stats on the deltas
+            const deltas = tempReportData.map(d => d.delta);
+            const { mean, stdDev } = getStats(deltas);
+            const threshold = stdDev * 1.5; // Flag items > 1.5 SD from the mean change
+
+            // 3. Final pass: Build chart data with flagging
+            const reportData = [];
+            const labels = [];
+            const dataValues = [];
+            const backgroundColors = [];
+            const borderColors = [];
+
+            for (const item of tempReportData) {
+                // Flag if stdDev is meaningful and delta is outside threshold
+                const isFlagged = stdDev > 0.01 && Math.abs(item.delta - mean) > threshold;
+                
+                reportData.push({ ...item, isFlagged });
+                labels.push(item.segment);
+                dataValues.push(item.delta);
+
+                if (isFlagged) {
+                    backgroundColors.push('rgba(253, 224, 71, 0.7)'); // Yellow-400
+                    borderColors.push('rgba(253, 224, 71, 1)');
+                } else {
+                    backgroundColors.push(item.delta >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'); // Green/Red
+                    borderColors.push(item.delta >= 0 ? 'rgba(16, 185, 129, 1)' : 'rgba(239, 68, 68, 1)');
+                }
+            }
+            
+            // Set data for comprehensive interpretation
+            currentComparisonData = {
+                type: 'comprehensive',
+                data: {
+                    analysisMode: 'All Segments',
+                    context: `Band: ${band}`,
+                    file1, file2, reportData
+                }
+            };
+
+            const chartTitle = `Delta (Change) for All Segments - Band: ${band}`;
+            const yAxisLabel = 'Delta (File 2 - File 1)';
+            const datasetLabel = `Delta for ${band}`;
+
+            updateChart(chartTitle, yAxisLabel, labels, dataValues, datasetLabel, backgroundColors, borderColors);
+            generateReportTable(reportData);
+            renderDiagnostics(computeDiagnosticsForReport(reportData));
+            
+            // Show interpretation section with instructions
+            interpretationSection.classList.remove('hidden');
+            getInterpretationButton.classList.remove('hidden'); // SHOW the button
+            getInterpretationButton.disabled = false;
+            getInterpretationButton.classList.remove('btn-disabled');
+            getInterpretationButton.textContent = 'Get Comprehensive Interpretation';
+            interpretationBox.classList.remove('hidden'); // Show the box for instructions
+            interpretationContent.innerHTML = '<strong>Click any bar</strong> for a specific interpretation, or use the button below for a <strong>comprehensive summary</strong>.';
+            interpretationContent.classList.remove('hidden');
+            interpretationSources.classList.add('hidden');
+            interpretationLoading.classList.add('hidden');
+        }
+
+        function runAllBandsComparison() {
+            const file1 = baselineSelect.value;
+            const file2 = comparisonSelect.value;
+            const segment = segmentSelect.value;
+
+            const bands = fileDataStore[file1].bands;
+            let tempReportData = [];
+
+            // 1. First pass: Get all valid data
+            for (const band of bands) {
+                const val1 = fileDataStore[file1].data[segment]?.[band];
+                const val2 = fileDataStore[file2].data[segment]?.[band];
+
+                if (val1 !== null && val2 !== null && val1 !== undefined && val2 !== undefined) {
+                    const delta = val2 - val1;
+                    const percentChange = (val1 === 0) ? (delta === 0 ? 0 : Infinity) : (delta / val1) * 100;
+                    tempReportData.push({
+                        segment: segment,
+                        band: band,
+                        val1: val1,
+                        val2: val2,
+                        delta: delta,
+                        percentChange: percentChange
+                    });
+                }
+            }
+
+            // 2. Calculate stats on the deltas
+            const deltas = tempReportData.map(d => d.delta);
+            const { mean, stdDev } = getStats(deltas);
+            const threshold = stdDev * 1.5; // Flag items > 1.5 SD from the mean change
+
+            // 3. Final pass: Build chart data with flagging
+            const reportData = [];
+            const labels = [];
+            const dataValues = [];
+            const backgroundColors = [];
+            const borderColors = [];
+
+            for (const item of tempReportData) {
+                const isFlagged = stdDev > 0.01 && Math.abs(item.delta - mean) > threshold;
+                
+                reportData.push({ ...item, isFlagged });
+                labels.push(item.band);
+                dataValues.push(item.delta);
+
+                if (isFlagged) {
+                    backgroundColors.push('rgba(253, 224, 71, 0.7)'); // Yellow-400
+                    borderColors.push('rgba(253, 224, 71, 1)');
+                } else {
+                    backgroundColors.push(item.delta >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'); // Green/Red
+                    borderColors.push(item.delta >= 0 ? 'rgba(16, 185, 129, 1)' : 'rgba(239, 68, 68, 1)');
+                }
+            }
+
+            // Set data for comprehensive interpretation
+            currentComparisonData = {
+                type: 'comprehensive',
+                data: {
+                    analysisMode: 'All Bands',
+                    context: `Segment: ${segment}`,
+                    file1, file2, reportData
+                }
+            };
+
+            const chartTitle = `Delta (Change) for All Bands - Segment: ${segment}`;
+            const yAxisLabel = 'Delta (File 2 - File 1)';
+            const datasetLabel = `Delta for ${segment}`;
+
+            updateChart(chartTitle, yAxisLabel, labels, dataValues, datasetLabel, backgroundColors, borderColors);
+            generateReportTable(reportData);
+            renderDiagnostics(computeDiagnosticsForReport(reportData));
+
+            // Show interpretation section with instructions
+            interpretationSection.classList.remove('hidden');
+            getInterpretationButton.classList.remove('hidden'); // SHOW the button
+            getInterpretationButton.disabled = false;
+            getInterpretationButton.classList.remove('btn-disabled');
+            getInterpretationButton.textContent = 'Get Comprehensive Interpretation';
+            interpretationBox.classList.remove('hidden'); // Show the box for instructions
+            interpretationContent.innerHTML = '<strong>Click any bar</strong> for a specific interpretation, or use the button below for a <strong>comprehensive summary</strong>.';
+            interpretationContent.classList.remove('hidden');
+            interpretationSources.classList.add('hidden');
+            interpretationLoading.classList.add('hidden');
+        }
+
+        function updateChart(chartTitle, yAxisLabel, labels, dataValues, datasetLabel, backgroundColors, borderColors) {
+            const ctx = document.getElementById('change-chart').getContext('2d');
+            
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const data = {
+                labels: labels,
+                datasets: [{
+                    label: datasetLabel,
+                    data: dataValues,
+                    backgroundColor: backgroundColors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            };
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: data,
+                options: {
+                    onClick: (event, elements) => {
+                        const chart = chartInstance;
+                        if (elements.length === 0) return; // No click on a bar
+
+                        const index = elements[0].index;
+                        const type = analysisTypeSelect.value;
+                        const file1 = baselineSelect.value;
+                        const file2 = comparisonSelect.value;
+
+                        let segment, band, val1, val2, delta;
+
+                        if (type === 'all_segments') {
+                            segment = chart.data.labels[index];
+                            band = bandSelect.value;
+                        } else if (type === 'all_bands') {
+                            segment = segmentSelect.value;
+                            band = chart.data.labels[index];
+                        } else {
+                            return; // Don't do this for single_point chart
+                        }
+                        
+                        try {
+                            val1 = fileDataStore[file1].data[segment][band];
+                            val2 = fileDataStore[file2].data[segment][band];
+                            delta = val2 - val1;
+
+                            if (val1 === null || val2 === null) {
+                                alert('Data for this point is invalid or missing.');
+                                return;
+                            }
+
+                            // Now we have the data for the clicked bar
+                            // Set data for a single-point interpretation
+                            currentComparisonData = { 
+                                type: 'single',
+                                data: { file1, file2, segment, band, val1, val2, delta }
+                            };
+                            
+                            // Manually trigger the interpretation
+                            // Update button text and show section
+                            interpretationSection.classList.remove('hidden');
+                            interpretationBox.classList.add('hidden'); // Hide old results
+                            interpretationContent.classList.add('hidden');
+                            interpretationLoading.classList.add('hidden');
+                            getInterpretationButton.classList.remove('hidden');
+                            getInterpretationButton.disabled = false;
+                            getInterpretationButton.classList.remove('btn-disabled');
+                            getInterpretationButton.textContent = `Get Interpretation for ${segment} (${band})`;
+
+                        } catch (e) {
+                            console.error("Error on chart click:", e);
+                            alert("Could not retrieve data for the clicked bar.");
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: {
+                                display: true,
+                                text: yAxisLabel
+                            }
+                        },
+                        x: {
+                            // For "All Segments", labels can be long
+                            ticks: {
+                                autoSkip: true,
+                                maxRotation: 0,
+                                minRotation: 0,
+                                callback: function(value, index, values) {
+                                    // Truncate long segment names in the axis
+                                    const label = this.getLabelForValue(value);
+                                    if (label.length > 15) {
+                                        return label.substring(0, 15) + '...';
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: chartTitle,
+                            font: {
+                                size: 18
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    // Use full label in tooltip, not truncated one
+                                    const label = context.dataset.label || '';
+                                    const value = context.raw.toFixed(3);
+                                    const fullXLabel = context.chart.data.labels[context.dataIndex];
+                                    
+                                    if (analysisTypeSelect.value === 'single_point') {
+                                        return `${label}: ${value}`;
+                                    } else {
+                                        // For multi-bar charts, show the segment/band in the tooltip
+                                        return `${fullXLabel}: ${value}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function generateReportTable(data) {
+            if (!data || data.length === 0) {
+                tableContainer.classList.add('hidden');
+                return;
+            }
+
+            const type = analysisTypeSelect.value;
+            let headers = [];
+            
+            if (type === 'single_point') {
+                headers = ['Segment', 'Band', 'Baseline', 'Comparison', 'Delta', '% Change'];
+            } else if (type === 'all_segments') {
+                headers = ['Segment', 'Baseline', 'Comparison', 'Delta', '% Change', 'Status'];
+            } else if (type === 'all_bands') {
+                headers = ['Band', 'Baseline', 'Comparison', 'Delta', '% Change', 'Status'];
+            }
+
+            let tableHTML = `<table class="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg">
+                                <thead class="bg-gray-50">
+                                    <tr>`;
+            headers.forEach(h => {
+                tableHTML += `<th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">${h}</th>`;
+            });
+            tableHTML += `      </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">`;
+
+            const file1 = baselineSelect.value.replace('.csv', '');
+            const file2 = comparisonSelect.value.replace('.csv', '');
+
+            // Update headers dynamically for file names
+            tableHTML = tableHTML.replace('Baseline', `Baseline (${file1})`);
+            tableHTML = tableHTML.replace('Comparison', `Comparison (${file2})`);
+
+            data.forEach(row => {
+                const percentChangeStr = isFinite(row.percentChange) ? row.percentChange.toFixed(2) + '%' : 'N/A';
+                const deltaColor = row.delta > 0 ? 'text-green-600' : (row.delta < 0 ? 'text-red-600' : 'text-gray-500');
+                const rowClass = row.isFlagged ? 'bg-yellow-50' : '';
+                
+                tableHTML += `<tr class="${rowClass}">`;
+                if (type === 'single_point') {
+                    tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${escapeHtml(row.segment)}</td>`;
+                    tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${escapeHtml(row.band)}</td>`;
+                } else if (type === 'all_segments') {
+                    tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${escapeHtml(row.segment)}</td>`;
+                } else if (type === 'all_bands') {
+                    tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${escapeHtml(row.band)}</td>`;
+                }
+                
+                tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${row.val1.toFixed(3)}</td>`;
+                tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700">${row.val2.toFixed(3)}</td>`;
+                tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm font-medium ${deltaColor}">${row.delta.toFixed(3)}</td>`;
+                tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm font-medium ${deltaColor}">${percentChangeStr}</td>`;
+
+                if (type !== 'single_point') {
+                    if (row.isFlagged) {
+                        tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm font-bold text-yellow-600">FLAGGED</td>`;
+                    } else {
+                        tableHTML += `<td class="px-4 py-3 whitespace-nowrap text-sm text-gray-400">-</td>`;
+                    }
+                }
+
+                tableHTML += `</tr>`;
+            });
+
+            tableHTML += `  </tbody>
+                           </table>`;
+            
+            // WRAP table in collapsible <details> tag
+            tableContainer.innerHTML = `
+                <details class="w-full">
+                    <summary class="text-xl font-semibold text-gray-800 mb-3 cursor-pointer hover:bg-gray-50 p-2 rounded-lg">
+                        Data Table (Click to expand)
+                    </summary>
+                    ${tableHTML}
+                </details>
+            `;
+            tableContainer.classList.remove('hidden');
+        }
+
+        // --- Export Function ---
+        function exportReport() {
+            const chartImage = chartInstance.toBase64Image();
+            const tableHTML = tableContainer.innerHTML;
+            const interpretationHTML = interpretationContent.innerHTML;
+            const sourcesHTML = interpretationSources.innerHTML;
+            
+            const file1 = baselineSelect.value;
+            const file2 = comparisonSelect.value;
+            const type = analysisTypeSelect.value;
+            let reportTitle = '';
+            
+            if (type === 'single_point') {
+                reportTitle = `QEEG Comparison: ${currentComparisonData.data.segment} (${currentComparisonData.data.band})`;
+            } else if (type === 'all_segments') {
+                reportTitle = `QEEG Comparison: All Segments for ${bandSelect.value}`;
+            } else if (type === 'all_bands') {
+                reportTitle = `QEEG Comparison: All Bands for ${segmentSelect.value}`;
+            }
+
+            const reportWindow = window.open('', '_blank');
+            const safeReportTitle = escapeHtml(reportTitle);
+            const safeFile1 = escapeHtml(file1);
+            const safeFile2 = escapeHtml(file2);
+            reportWindow.document.write(`
+                <html>
+                <head>
+                    <title>${safeReportTitle}</title>
+                    <style>
+                        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; padding: 2rem; }
+                        h1, h2, h3 { color: #333; }
+                        h1 { font-size: 24px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+                        h2 { font-size: 20px; color: #555; margin-top: 2rem; }
+                        h3 { font-size: 16px; color: #666; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+                        img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; margin-top: 1rem; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 1rem; border: 1px solid #ccc; }
+                        th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
+                        thead { background-color: #f8f8f8; }
+                        tbody tr:nth-child(even) { background-color: #fdfdfd; }
+                        #interpretation-box { background-color: #f8f8f8; border: 1px solid #eee; border-radius: 5px; padding: 1rem; white-space: pre-wrap; font-family: monospace; }
+                        #interpretation-sources { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #ccc; }
+                        #interpretation-sources h4 { margin: 0 0 0.5rem 0; font-size: 14px; }
+                        #interpretation-sources a { color: #0066cc; text-decoration: none; display: block; }
+                        
+                        @media print {
+                            body { padding: 0.5in; }
+                            .no-print { display: none; }
+                        }
+                        
+                        button {
+                            font-size: 16px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin-bottom: 20px;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <button class="no-print" onclick="window.print()">Print or Save as PDF</button>
+                    <h1>${safeReportTitle}</h1>
+                    <p>Comparison between <strong>${safeFile1}</strong> (Baseline) and <strong>${safeFile2}</strong> (Comparison).</p>
+                    
+                    <h2>Comparison Chart</h2>
+                    <img src="${chartImage}" alt="Comparison Chart" />
+                    
+                    ${tableHTML}
+                    
+                    ${interpretationHTML || sourcesHTML ? `
+                        <h2>Clinical Interpretation</h2>
+                        <div id="interpretation-box">
+                            ${interpretationHTML || 'No interpretation was generated.'}
+                        </div>
+                        ${sourcesHTML ? `<div id="interpretation-sources">${sourcesHTML}</div>` : ''}
+                    ` : ''}
+                </body>
+                </html>
+            `);
+            reportWindow.document.close();
+        }
+
+        // --- (START) Gemini API System Prompts ---
+        const systemPromptSingle = `You are an expert QEEG/Neuroscience research assistant. Your role is to analyze a specific change in QEEG data (likely z-scores) and provide potential clinical interpretations based on grounded, public web knowledge.
+
+        RULES:
+        1.  **DO NOT DIAGNOSE.** Never state that a change *causes* or *is* a condition.
+        2.  Use cautious language: "is often associated with," "may be correlated with," "could suggest," "is an area of interest for..."
+        3.  Keep the interpretation concise (2-3 paragraphs).
+        4.  Focus on the *specific change* provided (e.g., a decrease in Theta at Fp1-Fp2).
+        5.  Always cite the web sources provided by the grounding tool.`;
+        
+        const systemPromptComprehensive = `You are an expert QEEG/Neuroscience research assistant. A user has run a comprehensive analysis comparing two QEEG sessions. Your role is to provide a holistic summary of the *most significant changes* based on the data provided, using grounded, public web knowledge.
+
+        The user has provided a summary of:
+        1.  **"Flagged" items:** Changes that were statistically significant ( > 1.5 SD) compared to the *mean change* across the whole set. These are high-priority areas.
+        2.  **"Top" items:** The largest absolute changes (deltas) in the set.
+
+        RULES:
+        1.  **DO NOT DIAGNOSE.**
+        2.  **Synthesize, don't just list.** Look for patterns (e.g., "a widespread increase in frontal Theta," "a significant reduction of Beta activity in posterior regions").
+        3.  Start with a high-level summary of the main patterns.
+        4.  Then, call out 2-3 of the most interesting "flagged" or "top" changes and what they *may be associated with*.
+        5.  Use cautious language: "A notable pattern is...", "This collection of changes could suggest...", "The flagged changes in [Region] are often discussed in literature regarding..."
+        6.  Always cite the web sources provided by the grounding tool.`;
+        // --- (END) Gemini API System Prompts ---
+
+
+        async function fetchInterpretation() {
+            if (!currentComparisonData || !currentComparisonData.type) return;
+
+            // 1. Show loading state
+            interpretationBox.classList.remove('hidden');
+            interpretationContent.classList.add('hidden');
+            interpretationSources.classList.add('hidden');
+            interpretationLoading.classList.remove('hidden');
+            getInterpretationButton.disabled = true;
+            getInterpretationButton.classList.add('btn-disabled');
+            getInterpretationButton.textContent = 'Analyzing...';
+
+            let systemPrompt, userQuery;
+
+            if (currentComparisonData.type === 'single') {
+                const { segment, band, val1, val2, delta } = currentComparisonData.data;
+                const changeDesc = delta > 0 ? "increase" : "decrease";
+                const changeDir = delta > 0 ? "positive" : "negative";
+
+                systemPrompt = systemPromptSingle;
+                userQuery = `Analyze a QEEG change for a client.
+                - **Segment (Region/Pair):** ${segment}
+                - **Band:** ${band}
+                - **Baseline Value:** ${val1.toFixed(3)}
+                - **Comparison Value:** ${val2.toFixed(3)}
+                - **Change:** ${delta.toFixed(3)} (${Math.abs(delta / val1 * 100).toFixed(1)}% ${changeDesc})
+
+                Based on this ${changeDesc} in the ${band} band at segment ${segment}, what are the potential clinical interpretations or areas of interest for this kind of ${changeDir} shift?`;
+            
+            } else if (currentComparisonData.type === 'comprehensive') {
+                const { analysisMode, context, file1, file2, reportData } = currentComparisonData.data;
+                
+                // Summarize the data to send to the API
+                const flaggedItems = reportData
+                    .filter(r => r.isFlagged)
+                    .map(r => ({ item: r.segment || r.band, delta: r.delta.toFixed(3) }));
+                
+                const sortedByDelta = [...reportData].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+                const top5Items = sortedByDelta
+                    .slice(0, 5)
+                    .map(r => ({ item: r.segment || r.band, delta: r.delta.toFixed(3) }));
+                
+                systemPrompt = systemPromptComprehensive;
+                userQuery = `Provide a comprehensive, holistic summary for the following QEEG comparison:
+                - **Files:** Baseline ${file1} vs. Comparison ${file2}
+                - **Analysis Type:** ${analysisMode}
+                - **Analysis Context:** ${context}
+                
+                Here is a summary of the most significant changes:
+                - **Flagged Items (> 1.5 SD from mean change):** ${JSON.stringify(flaggedItems)}
+                - **Top 5 Largest Absolute Changes:** ${JSON.stringify(top5Items)}
+
+                Please identify key patterns and summarize what these changes, as a whole, might suggest.`;
+            
+            } else {
+                return; // Should not happen
+            }
+
+            // 3. Construct the API Payload
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                tools: [{ "google_search": {} }], // Enable Google Search grounding
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+            };
+
+            // 4. Make the API Call with retry logic
+            try {
+                const apiUrl = getApiUrl();
+                const response = await fetchWithRetry(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    let sources = [];
+                    const groundingMetadata = candidate.groundingMetadata;
+
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attr => attr.web)
+                            .filter(Boolean); // Filter out any non-web attributions
+                    }
+
+                    // 5. Display the results
+                    displayInterpretation(text, sources);
+
+                } else {
+                    // --- BEGIN EDIT ---
+                    // More detailed error logging for debugging
+                    console.error("API response did not contain valid content. Full response:", result);
+                    
+                    let errorMessage = "No valid content returned from the API.";
+                    if (candidate && candidate.finishReason) {
+                        errorMessage = `API call finished with reason: ${candidate.finishReason}. No content was generated.`;
+                        if (candidate.finishReason === "SAFETY") {
+                            errorMessage += " This may be due to safety filters blocking the prompt or the response.";
+                        }
+                    } else if (result.error) {
+                         errorMessage = `API Error: ${result.error.message}`;
+                    } else if (!candidate) {
+                        errorMessage = "No candidates found in API response.";
+                    } else if (!candidate.content) {
+                        errorMessage = "Candidate found, but it contains no content.";
+                    }
+                    
+                    throw new Error(errorMessage);
+                    // --- END EDIT ---
+                }
+
+            } catch (error) {
+                console.error('Error fetching interpretation:', error);
+                displayInterpretation(`Error: Could not fetch interpretation. ${error.message}`, []);
+            }
+        }
+        
+        function displayInterpretation(text, sources) {
+            interpretationContent.innerHTML = escapeHtml(text).replace(/\n/g, '<br>'); // Format text safely
+            interpretationContent.classList.remove('hidden');
+            
+            if (sources.length > 0) {
+                interpretationSources.innerHTML = '<h4>Grounded Sources:</h4>';
+                sources.forEach(source => {
+                    const a = document.createElement('a');
+                    a.href = source.uri;
+                    a.textContent = source.title || source.uri;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    interpretationSources.appendChild(a);
+                });
+                interpretationSources.classList.remove('hidden');
+            } else {
+                interpretationSources.classList.add('hidden');
+            }
+            
+            interpretationLoading.classList.add('hidden');
+            getInterpretationButton.textContent = 'Get Potential Interpretations';
+            // Do not re-enable the button, let them run a new comparison first
+            // But reset its text for the *next* potential run
+            if (currentComparisonData.type === 'single') {
+                getInterpretationButton.textContent = `Get Interpretation for ${currentComparisonData.data.segment} (${currentComparisonData.data.band})`;
+            } else if (currentComparisonData.type === 'comprehensive') {
+                getInterpretationButton.textContent = 'Get Comprehensive Interpretation';
+            }
+        }
+        
+        // --- Utility: Fetch with Exponential Backoff ---
+        async function fetchWithRetry(url, options, retries = 3, delay = 1000) {
+            for (let i = 0; i <= retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429 || response.status >= 500) {
+                        // Throttled or server error, wait and retry
+                        if (i === retries) throw new Error(`API request failed after ${retries} retries.`);
+                        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+                        continue; // Go to next iteration to retry
+                    }
+                    return response; // Successful response
+                } catch (error) {
+                    if (i === retries) throw error; // Max retries reached
+                    await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+                }
+            }
+        }
+    </script>
+</body>
+</html>
