@@ -581,7 +581,7 @@
             if (!isValidApiKey(apiKey)) {
                 throw new Error('Please enter a valid Google API key before generating interpretation.');
             }
-            return `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${encodeURIComponent(apiKey)}`;
+            return `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
         }
 
         function computeDiagnosticsForReport(reportData) {
